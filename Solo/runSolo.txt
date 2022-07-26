@@ -1,0 +1,17 @@
+# Solo pipeline
+
+# get the code
+git clone https://github.com/calico/solo.git
+
+# create environment
+cd solo && conda create -n solo python=3.7 && conda activate solo
+
+# installing requirements
+pip install -r requirements.txt
+pip install -e .
+
+# downgrade torchmetrics, since a used function was removed in a new version
+pip install torchmetrics==0.6.0
+
+# run Solo
+solo -j solo_params_example.json -d data\processed_PBMC_10x_annotated_atac.h5ad -o outDir -p

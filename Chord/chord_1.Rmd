@@ -1,0 +1,119 @@
+---
+title: "Chrod Doublet detection"
+author: "Linus Hoelzel"
+date: "7/4/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r libraries, echo = F}
+#remotes::install_github('chris-mcginnis-ucsf/DoubletFinder') 
+library(DoubletFinder)
+#devtools::install_github('kostkalab/scds',ref="master")
+library(scds)
+#install.packages("adabag")
+library(adabag)
+#install.packages("gbm")
+library(gbm)
+#install.packages("Rtools")
+#library(Rtools)
+#install.packages('Seurat')
+#BiocManager::install("scater")
+library(scater)
+library(Seurat)
+#devtools::install_github("13308204545/Chord", dependencies = TRUE) 
+library(Chord)
+library(data.table)
+library(dplyr)
+```
+
+
+
+```{r Input Data, echo=FALSE}
+barcodes = fread("MultipletBarcodes_01.txt", header = F)
+
+pbmc_expr_S3 = read.csv("pbmc_expr.csv")
+rownames(pbmc_expr_S3) = pbmc_expr_S3[,1]
+rownames(pbmc_expr_S3)
+pbmc_expr_S3 = pbmc_expr_S3[,-1]
+seurat_S3 = CreateSeuratObject(counts = pbmc_expr_S3, project = "Seurat_S3")
+
+chord(seu=seurat_S3,doubletrate=0.09,overkill=T,outname="S3_chord_analysis")
+
+```
+
+```{r second Chord step, echo=FALSE}
+scores = fread("simulated_data.scores.csv")
+load("sce.robj")
+load("seu.robj")
+
+chord(seu = seu,sce=sce,doubletrat=0.09,overkill=T,outname="second_step")
+```
+
+
+```{r Results and 3-class annotation, echo=FALSE}
+chrod_doublets = fread("second_step_doublet.csv", header = T)
+doublet_scores = fread("second_stepreal_score.csv", header = T)
+chrod_doublets[,V1 := NULL]
+setnames(chrod_doublets, "doublet_id")
+# AMULET doubelets
+multiplets_df = fread("MultipletBarcodes_01.txt", header = F)
+
+multiplets = multiplets_df$V1
+multiplets = gsub("-", ".", multiplets)
+
+#number of matches multiplets.txt and Chord results
+table(multiplets %in% chrod_doublets$doublet_id)
+table(chrod_doublets$doublet_id %in% multiplets)
+table(!chrod_doublets$doublet_id %in% multiplets)
+
+TP_doublets = multiplets[multiplets %in% chrod_doublets$doublet_id]
+notfound_doublets = multiplets[!multiplets %in% chrod_doublets$doublet_id]
+FP_doublets = chrod_doublets$doublet_id[!chrod_doublets$doublet_id %in% multiplets]
+
+# 3 columns T//F
+doublet_scores[, "heterotypic" := doublet_scores$V1 %in% TP_doublets]
+doublet_scores[, "homotypic" := doublet_scores$V1 %in% notfound_doublets]
+doublet_scores[, "singlet" := ifelse((heterotypic == F & homotypic == F), TRUE, FALSE)]
+# Class column
+doublet_scores[, "class" := ifelse(doublet_scores$V1 %in% TP_doublets, "heterotypic", "singlet")]
+doublet_scores[doublet_scores$V1 %in% notfound_doublets, "class"] <-"homotypic"
+doublet_scores[, class := as.factor(class)]
+table(doublet_scores$class)
+
+doublet_scores
+#write.csv(doublet_scores, file = "doubletscores.csv")
+
+potential_homo = doublet_scores[chord < -1.6 & chord > -1.9,]
+potential_home_expression = pbmc_expr[,colnames(pbmc_expr) %in% potential_homo$V1, with=F]
+potential_home_expression[, "gene" :=  pbmc_expr$V1]
+
+
+#write.csv(potential_home_expression, "potential_homo_expression.csv")
+#write.csv(potential_homo, "potential_homo_chord.csv")
+
+```
+
+
+
+```{r exploratory analyses, echo=FALSE}
+ggplot(doublet_scores, aes(chord, class)) + geom_point()
+
+ggplot(doublet_scores[chord < -1.6 & chord > -1.9,], aes(bcds_s, class)) + geom_point()
+ggplot(doublet_scores, aes(cxds_s, class)) + geom_point()
+ggplot(doublet_scores, aes(dbf_s, class)) + geom_point()
+doublet_scores[chord < -1.6 & chord > -1.9,]
+
+for_umap = doublet_scores[,1:4]
+
+ggplot(doublet_scores, aes(x=chord, y = singlet)) + geom_violin()
+
+
+#write.csv(doublet_scores, file = "Doubletannotation.csv")
+
+```
+
